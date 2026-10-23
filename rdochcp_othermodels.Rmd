@@ -1,0 +1,419 @@
+---
+title: "rdochcp plotting and analysis for Supp. Fig. 2"
+author: "Shaun Quah"
+date: "2025-09-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)      # for violin and box plots
+library(dplyr)        # for data manipulation (e.g., bind_rows)
+library(tibble)       # to create tibbles in plot_and_save()
+library(stats)        # for t.test()
+library(afex)     # rm-ANOVA
+afex::afex_options(include_aov = TRUE) 
+library(emmeans)  # post-hoc
+library(tidyr)    # pivot_longer
+library(ez)
+
+# Specify root directory
+root <- ""
+
+# Specify path to output of factor analysis
+fa_output_dir  <- "" # directory with the factor analysis output for validation models using variable N components
+
+cohort1_list <- file.path(root, "rdoc-hcp sherlock data", "cohort one.csv")
+cohort2_list <- file.path(root, "rdoc-hcp sherlock data", "cohort two.csv")
+
+output_dir <- file.path(root, "outputs")
+```
+
+# Create list of cohort 1 and 2 of unrelated individuals
+```{r}
+cohort1_list <- read.csv(cohort1_list)
+cohort2_list <- read.csv(cohort2_list)
+
+files <- list.files(fa_output_dir, pattern = "*.rds", full.names = FALSE)
+subject_numbers <- gsub("(.*)_FAoutput\\.rds", "\\1", files)
+
+cohort1_ids <- as.character(cohort1_list$Subject)
+matching_sub1 <- subject_numbers %in% cohort1_ids
+cohort2_ids <- as.character(cohort2_list$Subject)
+matching_sub2 <- subject_numbers %in% cohort2_ids
+```
+
+# List and load all RDS files for all 4 models
+```{r}
+# List and load all RDS files for dd specific and rdoc bifactor models
+input_directory <- file.path(fa_output_dir, "output_othermodels")
+files <- list.files(input_directory, pattern = "\\.rds$", full.names = TRUE)
+results_list <- lapply(files, readRDS)
+
+# Create a new list with results and behav_data only for cohort 1 and 2 subjects
+results_list1 <- results_list[matching_sub1]
+results_list2 <- results_list[matching_sub2]
+
+# List and load all RDS files for dd bifactor and rdoc specific factor models
+input_directory <- file.path(fa_output_dir, "output")
+files <- list.files(input_directory, pattern = "\\.rds$", full.names = TRUE)
+results_list0 <- lapply(files, readRDS)
+
+# Create a new list with results and behav_data only for cohort 1 and 2 subjects
+results_list01 <- results_list0[matching_sub1]
+results_list02 <- results_list0[matching_sub2]
+```
+
+# Supplementary Figure 2: fit score comparison of dd specific, dd bifactor, rdoc specific, and dd bifactor models
+```{r}
+# Function to extract and consolidate a specific fit measure from all subjects for a given model
+extract_fit_measure <- function(results_list, model_name, measure_name) {
+  # Initialize a vector to store the fit measures for all subjects
+  fit_measures <- numeric(length(results_list))
+  
+  # Loop through the results list
+  for (i in seq_along(results_list)) {
+    # Try to extract the fit measure for the current subject
+    # Dynamically access the correct model's output and then the specific fit measure using [[ for both levels
+    fit_measure <- tryCatch({
+      results_list[[i]][[model_name]]$fit.measures[[measure_name]]
+    }, error = function(e) {
+      NA  # In case of any error, assign NA
+    })
+    
+    # Store the fit measure in the vector
+    fit_measures[i] <- fit_measure
+  }
+  
+  # Return the consolidated fit measures
+  return(fit_measures)
+}
+```
+
+# Apply function to extract fit scores
+```{r}
+# dd specific and rdoc bifactor models
+dd1_rmsea <- extract_fit_measure(results_list1, "edd.fit.output1", "rmsea.robust")
+dd2_rmsea <- extract_fit_measure(results_list2, "edd.fit.output1", "rmsea.robust")
+rdoc1_rmsea <- extract_fit_measure(results_list1, "erdoc.fit.output1", "rmsea.robust")
+rdoc2_rmsea <- extract_fit_measure(results_list2, "erdoc.fit.output1", "rmsea.robust")
+
+dd1_cfi <- extract_fit_measure(results_list1, "edd.fit.output1", "cfi.robust")
+dd2_cfi <- extract_fit_measure(results_list2, "edd.fit.output1", "cfi.robust")
+rdoc1_cfi <- extract_fit_measure(results_list1, "erdoc.fit.output1", "cfi.robust")
+rdoc2_cfi <- extract_fit_measure(results_list2, "erdoc.fit.output1", "cfi.robust")
+
+dd1_tli <- extract_fit_measure(results_list1, "edd.fit.output1", "tli.robust")
+dd2_tli <- extract_fit_measure(results_list2, "edd.fit.output1", "tli.robust")
+rdoc1_tli <- extract_fit_measure(results_list1, "erdoc.fit.output1", "tli.robust")
+rdoc2_tli <- extract_fit_measure(results_list2, "erdoc.fit.output1", "tli.robust")
+
+dd1_aic <- extract_fit_measure(results_list1, "edd.fit.output1", "aic")
+dd2_aic <- extract_fit_measure(results_list2, "edd.fit.output1", "aic")
+rdoc1_aic <- extract_fit_measure(results_list1, "erdoc.fit.output1", "aic")
+rdoc2_aic <- extract_fit_measure(results_list2, "erdoc.fit.output1", "aic")
+
+# dd bifactor and rdoc specific factor models
+dd01_rmsea <- extract_fit_measure(results_list01, "edd.fit.output1", "rmsea.robust")
+rdoc01_rmsea <- extract_fit_measure(results_list01, "erdoc.fit.output1", "rmsea.robust")
+dd02_rmsea <- extract_fit_measure(results_list02, "edd.fit.output1", "rmsea.robust")
+rdoc02_rmsea <- extract_fit_measure(results_list02, "erdoc.fit.output1", "rmsea.robust")
+
+dd01_cfi <- extract_fit_measure(results_list01, "edd.fit.output1", "cfi.robust")
+rdoc01_cfi <- extract_fit_measure(results_list01, "erdoc.fit.output1", "cfi.robust")
+dd02_cfi <- extract_fit_measure(results_list02, "edd.fit.output1", "cfi.robust")
+rdoc02_cfi <- extract_fit_measure(results_list02, "erdoc.fit.output1", "cfi.robust")
+
+dd01_tli <- extract_fit_measure(results_list01, "edd.fit.output1", "tli.robust")
+rdoc01_tli <- extract_fit_measure(results_list01, "erdoc.fit.output1", "tli.robust")
+dd02_tli <- extract_fit_measure(results_list02, "edd.fit.output1", "tli.robust")
+rdoc02_tli <- extract_fit_measure(results_list02, "erdoc.fit.output1", "tli.robust")
+
+dd01_aic <- extract_fit_measure(results_list01, "edd.fit.output1", "aic")
+rdoc01_aic <- extract_fit_measure(results_list01, "erdoc.fit.output1", "aic")
+dd02_aic <- extract_fit_measure(results_list02, "edd.fit.output1", "aic")
+rdoc02_aic <- extract_fit_measure(results_list02, "erdoc.fit.output1", "aic")
+```
+
+# Create functions for violin plots for fit measures
+```{r, fig.height = 5, fig.width = 5}
+# Function to create a dataframe from the extracted measures
+create_measure_df <- function(..., measure_names) {
+  measures_list <- list(...)
+  names(measures_list) <- measure_names
+  
+  # Finding the maximum length
+  max_length <- max(sapply(measures_list, length))
+  
+  # Ensuring all vectors are of the same length
+  measures_list <- lapply(measures_list, function(x) {
+    if (length(x) < max_length) {
+      length(x) <- max_length  # Extending the length of the vector and filling with NAs
+    }
+    x
+  })
+  
+  # Convert the list to a data frame
+  df <- bind_rows(lapply(names(measures_list), function(name) {
+    measure <- measures_list[[name]]
+    data.frame(Model = rep(name, length(measure)), RMSEA = measure, stringsAsFactors = FALSE)
+  }), .id = "ModelName")
+  
+  # Convert 'Model' to a factor and specify the order directly
+  desired_order <- c("edd1", "eRDoC1", "edd2", "eRDoC2")
+  df$Model <- factor(df$Model, levels = desired_order)
+  
+  return(df)
+}
+
+# Function to create violin plots with specified colors
+create_violin_plot <- function(data, title = "Violin Plot", xlab = "Model", ylab = "Score") {
+  p <- ggplot(data, aes(x = Model, y = RMSEA, fill = Model)) +
+    geom_violin(trim = FALSE, na.rm = TRUE) +
+    geom_boxplot(width = 0.1, fill = "white", outlier.shape = 21, outlier.colour = "black", outlier.fill = "black", outlier.size = 1.5, na.rm = TRUE) +
+    theme_minimal() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+    labs(title = title, x = xlab, y = ylab) +
+    scale_fill_manual(values = c(
+      "dd1" = hcl(240, 80, 40),
+      "RDoC1" = hcl(10, 80, 40),
+      "dd2" = hcl(240, 80, 40),
+      "RDoC2" = hcl(10, 80, 40)
+    ))
+
+  if (tolower(ylab) %in% c("rmsea", "aic")) {
+    p <- p + scale_y_reverse()
+  }
+
+  return(p)
+}
+
+# Build long df for a metric
+build_metric_df4 <- function(dd1, dd01, rdoc01, rdoc1,
+                             dd2, dd02, rdoc02, rdoc2,
+                             metric_label) {
+  dplyr::bind_rows(
+    tibble::tibble(Cohort = "Cohort 1", Model = "DD",      value = as.numeric(dd1)),
+    tibble::tibble(Cohort = "Cohort 1", Model = "DD-b",    value = as.numeric(dd01)),
+    tibble::tibble(Cohort = "Cohort 1", Model = "RDoC",    value = as.numeric(rdoc01)),
+    tibble::tibble(Cohort = "Cohort 1", Model = "RDoC-b",  value = as.numeric(rdoc1)),
+    tibble::tibble(Cohort = "Cohort 2", Model = "DD",      value = as.numeric(dd2)),
+    tibble::tibble(Cohort = "Cohort 2", Model = "DD-b",    value = as.numeric(dd02)),
+    tibble::tibble(Cohort = "Cohort 2", Model = "RDoC",    value = as.numeric(rdoc02)),
+    tibble::tibble(Cohort = "Cohort 2", Model = "RDoC-b",  value = as.numeric(rdoc2))
+  ) |>
+    dplyr::filter(!is.na(value)) |>
+    dplyr::mutate(
+      Model  = factor(Model, levels = c("DD","DD-b","RDoC","RDoC-b")),
+      Metric = metric_label
+    )
+}
+
+# Plot a metric; reverse y for "lower is better" indices
+plot_metric4 <- function(df, reverse = FALSE) {
+  p <- ggplot(df, aes(x = Model, y = value, fill = Model)) +
+    geom_violin(trim = FALSE, na.rm = TRUE) +
+    geom_boxplot(width = 0.12, fill = "white", outlier.size = 0.9, na.rm = TRUE) +
+    facet_wrap(~ Cohort, nrow = 1) +
+    labs(x = "Model", y = unique(df$Metric), title = unique(df$Metric)) +
+    scale_fill_manual(values = c(
+      "DD"     = hcl(240, 50, 65),
+      "DD-b"   = hcl(240, 80, 40),
+      "RDoC"   = hcl( 10, 80, 40),
+      "RDoC-b" = hcl( 10, 50, 65)
+    )) +
+    theme_minimal() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line = element_line(colour = "black"),
+          legend.position = "none")
+  if (reverse) p <- p + scale_y_reverse()
+  p
+}
+```
+
+# Violin plots by cohort for each fit index (DD, DD-b, RDoC, RDoC-b)
+```{r}
+# RMSEA
+rmsea_df <- build_metric_df4(
+  dd1_rmsea,  dd01_rmsea,  rdoc01_rmsea,  rdoc1_rmsea,
+  dd2_rmsea,  dd02_rmsea,  rdoc02_rmsea,  rdoc2_rmsea,
+  "RMSEA (robust)"
+)
+p_rmsea <- plot_metric4(rmsea_df, reverse = TRUE)
+print(p_rmsea)  # keep in the report
+ggplot2::ggsave(file.path(output_dir, "Violin_fig1_rmsea_othermodels.png"),
+                plot = p_rmsea, width = 10, height = 6, units = "in",
+                dpi = 300, bg = "white")
+
+# CFI
+cfi_df <- build_metric_df4(
+  dd1_cfi,  dd01_cfi,  rdoc01_cfi,  rdoc1_cfi,
+  dd2_cfi,  dd02_cfi,  rdoc02_cfi,  rdoc2_cfi,
+  "CFI (robust)"
+)
+p_cfi <- plot_metric4(cfi_df, reverse = FALSE)
+print(p_cfi)  # keep in the report
+ggplot2::ggsave(file.path(output_dir, "Violin_fig1_cfi_othermodels.png"),
+                plot = p_cfi, width = 10, height = 6, units = "in",
+                dpi = 300, bg = "white")
+
+# TLI
+tli_df <- build_metric_df4(
+  dd1_tli,  dd01_tli,  rdoc01_tli,  rdoc1_tli,
+  dd2_tli,  dd02_tli,  rdoc02_tli,  rdoc2_tli,
+  "TLI (robust)"
+)
+p_tli <- plot_metric4(tli_df, reverse = FALSE)
+print(p_tli)  # keep in the report
+ggplot2::ggsave(file.path(output_dir, "Violin_fig1_tli_othermodels.png"),
+                plot = p_tli, width = 10, height = 6, units = "in",
+                dpi = 300, bg = "white")
+
+# AIC
+aic_df <- build_metric_df4(
+  dd1_aic,  dd01_aic,  rdoc01_aic,  rdoc1_aic,
+  dd2_aic,  dd02_aic,  rdoc02_aic,  rdoc2_aic,
+  "AIC"
+)
+p_aic <- plot_metric4(aic_df, reverse = TRUE)
+print(p_aic)  # keep in the report
+ggplot2::ggsave(file.path(output_dir, "Violin_fig1_aic_othermodels.png"),
+                plot = p_aic, width = 10, height = 6, units = "in",
+                dpi = 300, bg = "white")
+```
+
+# Function for Repeated-measures ANOVA + Tukey, with labeled output
+```{r, fig.height = 5, fig.width = 5}
+# Build subject-long data for one cohort/metric
+.make_long <- function(dd, dd_b, rdoc, rdoc_b, cohort, metric) {
+  L <- max(length(dd), length(dd_b), length(rdoc), length(rdoc_b))
+  pad <- function(x, L) { x <- as.numeric(x); length(x) <- L; x }
+  wide <- data.frame(
+    DD       = pad(dd,     L),
+    `DD-b`   = pad(dd_b,   L),
+    RDoC     = pad(rdoc,   L),
+    `RDoC-b` = pad(rdoc_b, L),
+    check.names = FALSE
+  )
+  wide <- wide[complete.cases(wide), , drop = FALSE]
+  wide$Subject <- factor(seq_len(nrow(wide)))
+  long <- tidyr::pivot_longer(
+    wide, c("DD","DD-b","RDoC","RDoC-b"),
+    names_to = "Model", values_to = "value"
+  )
+  long$Model  <- factor(long$Model, levels = c("DD","DD-b","RDoC","RDoC-b"))
+  long$Cohort <- cohort
+  long$Metric <- metric
+  long
+}
+
+# RM-ANOVA + Tukey pairwise
+.run_tests <- function(df) {
+  aov_obj <- afex::aov_ez(
+    id = "Subject", dv = "value", data = df,
+    within = "Model", type = 3,
+    anova_table = list(correction = "GG", es = "ges")
+  )
+  emms  <- emmeans::emmeans(aov_obj, ~ Model)
+  tukey <- emmeans::contrast(emms, method = "pairwise", adjust = "tukey")
+  list(anova = aov_obj, tukey = tukey)
+}
+
+# Reporting helper
+report_results <- function(metric, cohort, res) {
+  cat("\n==============================\n",
+      metric, " | ", cohort, "\n",
+      "==============================\n", sep = "")
+  cat("ANOVA (GG-corrected):\n")
+  print(res$anova$anova_table)
+  cat("\nPost-hoc (Tukey, pairwise):\n")
+  print(res$tukey)
+}
+```
+
+# Perform GG-corrected stats test Repeated-measures ANOVA + Tukey
+```{r, fig.height = 5, fig.width = 5}
+# RMSEA
+df_rmsea_c1 <- .make_long(dd1_rmsea, dd01_rmsea, rdoc01_rmsea, rdoc1_rmsea, "Cohort 1", "RMSEA (robust)")
+df_rmsea_c2 <- .make_long(dd2_rmsea, dd02_rmsea, rdoc02_rmsea, rdoc2_rmsea, "Cohort 2", "RMSEA (robust)")
+res_rmsea_c1 <- .run_tests(df_rmsea_c1)
+res_rmsea_c2 <- .run_tests(df_rmsea_c2)
+report_results("RMSEA (robust)", "Cohort 1", res_rmsea_c1)
+report_results("RMSEA (robust)", "Cohort 2", res_rmsea_c2)
+
+# CFI
+df_cfi_c1 <- .make_long(dd1_cfi, dd01_cfi, rdoc01_cfi, rdoc1_cfi, "Cohort 1", "CFI (robust)")
+df_cfi_c2 <- .make_long(dd2_cfi, dd02_cfi, rdoc02_cfi, rdoc2_cfi, "Cohort 2", "CFI (robust)")
+res_cfi_c1 <- .run_tests(df_cfi_c1)
+res_cfi_c2 <- .run_tests(df_cfi_c2)
+report_results("CFI (robust)", "Cohort 1", res_cfi_c1)
+report_results("CFI (robust)", "Cohort 2", res_cfi_c2)
+
+# TLI
+df_tli_c1 <- .make_long(dd1_tli, dd01_tli, rdoc01_tli, rdoc1_tli, "Cohort 1", "TLI (robust)")
+df_tli_c2 <- .make_long(dd2_tli, dd02_tli, rdoc02_tli, rdoc2_tli, "Cohort 2", "TLI (robust)")
+res_tli_c1 <- .run_tests(df_tli_c1)
+res_tli_c2 <- .run_tests(df_tli_c2)
+report_results("TLI (robust)", "Cohort 1", res_tli_c1)
+report_results("TLI (robust)", "Cohort 2", res_tli_c2)
+
+# AIC
+df_aic_c1 <- .make_long(dd1_aic, dd01_aic, rdoc01_aic, rdoc1_aic, "Cohort 1", "AIC")
+df_aic_c2 <- .make_long(dd2_aic, dd02_aic, rdoc02_aic, rdoc2_aic, "Cohort 2", "AIC")
+res_aic_c1 <- .run_tests(df_aic_c1)
+res_aic_c2 <- .run_tests(df_aic_c2)
+report_results("AIC", "Cohort 1", res_aic_c1)
+report_results("AIC", "Cohort 2", res_aic_c2)
+```
+
+# Check whether GG correction is necessary (per metric/cohort)
+```{r}
+check_sphericity <- function(df, alpha = 0.05) {
+  # expects columns: Subject (factor), Model (factor), value (numeric)
+  df <- as.data.frame(df)
+  df$Subject <- factor(df$Subject); df$Model <- factor(df$Model)
+
+  ez_out <- ez::ezANOVA(
+    data = df, dv = value, wid = Subject, within = .(Model),
+    type = 3, detailed = TRUE, return_aov = TRUE
+  )
+
+  mauchly <- ez_out$Mauchly
+  sphcorr <- ez_out$`Sphericity Corrections`
+
+  p_mauchly <- if (nrow(mauchly)) as.numeric(mauchly$p[1]) else NA_real_
+  gg_eps    <- if (nrow(sphcorr)) as.numeric(sphcorr$GGe[1]) else NA_real_
+  hf_eps    <- if (nrow(sphcorr)) as.numeric(sphcorr$HFe[1]) else NA_real_
+
+  # Rule: if Mauchly p<alpha, sphericity violated → recommend HF if hf_eps>0.75, else GG; otherwise none
+  recommend <- if (!is.na(p_mauchly) && p_mauchly < alpha) {
+    if (!is.na(hf_eps) && hf_eps > 0.75) "HF" else "GG"
+  } else {
+    "none"
+  }
+
+  list(mauchly = mauchly, epsilons = sphcorr,
+       mauchly_p = p_mauchly, gg_epsilon = gg_eps, hf_epsilon = hf_eps,
+       recommend = recommend)
+}
+
+report_sphericity <- function(metric, cohort, diag) {
+  cat("\n---", metric, "|", cohort, "---\n", sep = " ")
+  cat("Mauchly p:", format(diag$mauchly_p, digits = 3, scientific = TRUE), "\n")
+  cat("GG ε:", round(diag$gg_epsilon, 3), " HF ε:", round(diag$hf_epsilon, 3), "\n")
+  cat("Recommendation:", diag$recommend, "\n")
+  cat("\nMauchly table:\n"); print(diag$mauchly, row.names = FALSE)
+  cat("\nSphericity corrections:\n"); print(diag$epsilons, row.names = FALSE)
+}
+
+# Examples using your long data frames:
+rmsea_c1_diag <- check_sphericity(df_rmsea_c1); report_sphericity("RMSEA (robust)", "Cohort 1", rmsea_c1_diag)
+rmsea_c2_diag <- check_sphericity(df_rmsea_c2); report_sphericity("RMSEA (robust)", "Cohort 2", rmsea_c2_diag)
+cfi_c1_diag   <- check_sphericity(df_cfi_c1);   report_sphericity("CFI (robust)",   "Cohort 1", cfi_c1_diag)
+cfi_c2_diag   <- check_sphericity(df_cfi_c2);   report_sphericity("CFI (robust)",   "Cohort 2", cfi_c2_diag)
+tli_c1_diag   <- check_sphericity(df_tli_c1);   report_sphericity("TLI (robust)",   "Cohort 1", tli_c1_diag)
+tli_c2_diag   <- check_sphericity(df_tli_c2);   report_sphericity("TLI (robust)",   "Cohort 2", tli_c2_diag)
+aic_c1_diag   <- check_sphericity(df_aic_c1);   report_sphericity("AIC",            "Cohort 1", aic_c1_diag)
+aic_c2_diag   <- check_sphericity(df_aic_c2);   report_sphericity("AIC",            "Cohort 2", aic_c2_diag)
+```

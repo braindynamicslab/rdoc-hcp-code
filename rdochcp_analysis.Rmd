@@ -1,0 +1,447 @@
+---
+title: "rdochcp analysis for results 1,2 and 5"
+author: "Shaun Quah"
+date: "2025-11-12"
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lavaan)
+library(openxlsx)
+library(gplots)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(psych)
+library(openxlsx)
+library(data.table)
+library(stats)
+library(mgcv)
+
+# Specify root directory
+root <- ""
+
+# Specify path to output of factor analysis
+fa_output_dir <- ""                                                                # Specify subject factor analysis outputs .rds here
+
+# Load required files
+behav_data <- read.xlsx(file.path(root, "rdoc-hcp sherlock data", "HCP_behaviouraldata.xlsx"))    # Not committed, obtain from HCP repository (request required)
+behav_data_r <- read.csv(file.path(root, "rdoc-hcp sherlock data", "RESTRICTED.csv"))             # Not committed, obtain from HCP repository (request required)
+
+cohort1_list <- read.csv(file.path(root, "rdoc-hcp sherlock data", "cohort one.csv"))
+cohort2_list <- read.csv(file.path(root, "rdoc-hcp sherlock data", "cohort two.csv"))
+
+dd.cbfa.fscores0 <- read.xlsx(file.path(root, "rdoc-hcp sherlock data", "fscores_DDbifactorcfa.xlsx"))
+rdoc.cfa.fscores0 <- read.xlsx(file.path(root, "rdoc-hcp sherlock data", "fscores_rdoccfa.xlsx"))
+
+cifti2shineorder <- read.csv(file.path(root, "rdoc-hcp sherlock data", "Shine_375_labels.csv"), colClasses = c(rep("NULL", 7), "character"), nrows = 347)
+shine2ciftiorder <- read.csv(file.path(root, "rdoc-hcp sherlock data", "Shine_375_labels.csv"), colClasses = c(rep("NULL", 14), "character"), nrows = 347)
+
+data_hcp <- read.xlsx(file.path(root, "rdoc-hcp sherlock data", "HCP group averaged task contrast.xlsx"))
+```
+
+#load results from factor analysis on all subjects in results_list
+```{r}
+# List and load all RDS files
+files <- list.files(fa_output_dir, pattern = "\\.rds$", full.names = TRUE)
+results_list <- lapply(files, readRDS)
+```
+
+#load behavioral data
+```{r}
+column_names <- names(behav_data)
+behav_data <- behav_data[c(1:500)]
+
+files <- list.files(fa_output_dir, pattern = "*.rds", full.names = FALSE)
+subject_numbers <- gsub("(.*)_FAoutput\\.rds", "\\1", files)
+behav_data <- behav_data[behav_data$Subject %in% subject_numbers, ]
+behav_data_r <- behav_data_r[behav_data_r$Subject %in% subject_numbers, ]
+```
+
+#create cohort_1 and _2 of unrelated individuals
+```{r}
+cohort1_ids <- as.character(cohort1_list$Subject)
+matching_sub1 <- subject_numbers %in% cohort1_ids
+cohort2_ids <- as.character(cohort2_list$Subject)
+matching_sub2 <- subject_numbers %in% cohort2_ids
+
+# Create a new list with results and behav_data only for cohort 1 and 2 subjects
+results_list1 <- results_list[matching_sub1]
+results_list2 <- results_list[matching_sub2]
+
+behav_data1 <- behav_data[behav_data$Subject %in% cohort1_ids, ]
+behav_data2 <- behav_data[behav_data$Subject %in% cohort2_ids, ]
+
+behav_data_r1 <- behav_data_r[behav_data_r$Subject %in% cohort1_ids, ]
+behav_data_r2 <- behav_data_r[behav_data_r$Subject %in% cohort2_ids, ]
+```
+
+#load factors from paper0 and HCP group task contrast, and convert to gordon cifti order
+```{r}
+column_number <- which(colnames(dd.cbfa.fscores0) == "g")
+dd.cbfa.fscores_nog0 <- dd.cbfa.fscores0[, -column_number]
+
+cifti2shineorder <- as.numeric(cifti2shineorder[[1]])
+shine2ciftiorder <- as.numeric(shine2ciftiorder[[1]])
+
+#Group average of task contrast for HCP that is already in Cifti order
+data_hcp[] <- lapply(data_hcp, as.numeric)
+data_hcp <- apply(data_hcp, 2, scale)
+data_hcp <- data_hcp[, order(colnames(data_hcp))]
+
+colnames(data_hcp) <- c("L1", "L2", "E2", "R1", "S1", "R2", "W5", "W7", "W8", "W1", "W3", "W4", "W6", "W2", "E1", "G1", "G2", "S2", "M1", "M2", "M3", "M4", "M5", "M6")
+
+# Reorder factors from paper 0 and HCP group task contrast based on `shine2ciftiorder`
+dd.cbfa.fscores <- dd.cbfa.fscores0[shine2ciftiorder, ]
+dd.cbfa.fscores_nog <- dd.cbfa.fscores_nog0[shine2ciftiorder, ]
+rdoc_cfa_fscores <- rdoc.cfa.fscores0[shine2ciftiorder, ]
+```
+
+####
+# Result 1a: fit score comparison of dd vs rdoc
+```{r}
+# Function to extract and consolidate a specific fit measure from all subjects for a given model
+extract_fit_measure <- function(results_list, model_name, measure_name) {
+  # Initialize a vector to store the fit measures for all subjects
+  fit_measures <- numeric(length(results_list))
+  
+  # Loop through the results list
+  for (i in seq_along(results_list)) {
+    # Try to extract the fit measure for the current subject
+    # Dynamically access the correct model's output and then the specific fit measure using [[ for both levels
+    fit_measure <- tryCatch({
+      results_list[[i]][[model_name]]$fit.measures[[measure_name]]
+    }, error = function(e) {
+      NA  # In case of any error, assign NA
+    })
+    
+    # Store the fit measure in the vector
+    fit_measures[i] <- fit_measure
+  }
+  
+  # Return the consolidated fit measures
+  return(fit_measures)
+}
+```
+
+# Apply function to extract fit scores
+```{r}
+edd1_rmsea <- extract_fit_measure(results_list2, "edd.fit.output1", "rmsea.robust")
+erdoc1_rmsea <- extract_fit_measure(results_list2, "erdoc.fit.output1", "rmsea.robust")
+
+edd1_cfi <- extract_fit_measure(results_list2, "edd.fit.output1", "cfi.robust")
+erdoc1_cfi <- extract_fit_measure(results_list2, "erdoc.fit.output1", "cfi.robust")
+
+edd1_tli <- extract_fit_measure(results_list2, "edd.fit.output1", "tli.robust")
+erdoc1_tli <- extract_fit_measure(results_list2, "erdoc.fit.output1", "tli.robust")
+
+edd1_aic <- extract_fit_measure(results_list2, "edd.fit.output1", "aic")
+erdoc1_aic <- extract_fit_measure(results_list2, "erdoc.fit.output1", "aic")
+```
+
+# Functions to create violin plots for fit measures
+```{r}
+# Function to create a dataframe from the extracted measures
+create_measure_df <- function(..., measure_names) {
+  measures_list <- list(...)
+  names(measures_list) <- measure_names
+  
+  # Finding the maximum length
+  max_length <- max(sapply(measures_list, length))
+  
+  # Ensuring all vectors are of the same length
+  measures_list <- lapply(measures_list, function(x) {
+    if (length(x) < max_length) {
+      length(x) <- max_length  # Extending the length of the vector and filling with NAs
+    }
+    x
+  })
+  
+  # Convert the list to a data frame
+  df <- bind_rows(lapply(names(measures_list), function(name) {
+    measure <- measures_list[[name]]
+    data.frame(Model = rep(name, length(measure)), RMSEA = measure, stringsAsFactors = FALSE)
+  }), .id = "ModelName")
+  
+  # Convert 'Model' to a factor and specify the order directly
+  desired_order <- c("edd1", "eRDoC1")
+  df$Model <- factor(df$Model, levels = desired_order)
+  
+  return(df)
+}
+
+# Function to create violin plots with specified colors
+# Updated Function
+create_violin_plot <- function(data, title = "Violin Plot", xlab = "Model", ylab = "Score") {
+  p <- ggplot(data, aes(x = Model, y = RMSEA, fill = Model)) +
+    geom_violin(trim = FALSE, na.rm = TRUE) +
+    geom_boxplot(width = 0.1, fill = "white", outlier.shape = 21, outlier.colour = "black", outlier.fill = "black", outlier.size = 1.5, na.rm = TRUE) +
+    theme_minimal() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+    labs(title = title, x = xlab, y = ylab) +
+    scale_fill_manual(values = c(
+      "edd1" = hcl(240, 80, 40),
+      "eRDoC1" = hcl(10, 80, 40)
+    ))
+
+  if (tolower(ylab) %in% c("rmsea", "aic")) {
+    p <- p + scale_y_reverse()
+  }
+
+  return(p)
+}
+```
+
+# Create violin plots for fit measures
+```{r, fig.height = 5, fig.width = 5}
+rmsea_df <- create_measure_df(
+  edd1_rmsea = edd1_rmsea,
+  erdoc1_rmsea = erdoc1_rmsea,
+  measure_names = c("edd1", "eRDoC1")
+)
+rmsea_plot <- create_violin_plot(rmsea_df, title = "Violin Plot of RMSEA Scores", xlab = "Model", ylab = "RMSEA")
+
+cfi_df <- create_measure_df(
+  edd1_cfi = edd1_cfi,
+  erdoc1_cfi = erdoc1_cfi,
+  measure_names = c("edd1", "eRDoC1")
+)
+cfi_plot <- create_violin_plot(cfi_df, title = "Violin Plot of cfi Scores", xlab = "Model", ylab = "cfi")
+
+tli_df <- create_measure_df(
+  edd1_tli = edd1_tli,
+  erdoc1_tli = erdoc1_tli,
+  measure_names = c("edd1", "eRDoC1")
+)
+tli_plot <- create_violin_plot(tli_df, title = "Violin Plot of tli Scores", xlab = "Model", ylab = "tli")
+
+aic_df <- create_measure_df(
+  edd1_aic = edd1_aic,
+  erdoc1_aic = erdoc1_aic,
+  measure_names = c("edd1", "eRDoC1")
+)
+aic_plot <- create_violin_plot(aic_df, title = "Violin Plot of AIC Scores", xlab = "Model", ylab = "AIC")
+
+#Save rmsea_plot, aic_plot. cfi_plot, tli_plot as .png
+```
+
+# Stats test to compare significance between groups
+```{r}
+library(effectsize)
+
+# Function to perform paired statistical tests and report results
+compare_groups <- function(data, group1, group2, score_name) {
+  # Subset the data for the two groups
+  group1_data <- data[data$Model == group1, "RMSEA", drop = TRUE]
+  group2_data <- data[data$Model == group2, "RMSEA", drop = TRUE]
+  
+  # Make sure the values are aligned for paired comparison
+  if (length(group1_data) != length(group2_data)) {
+    stop("Group sizes do not match; cannot run paired test.")
+  }
+  
+  # Descriptive statistics
+  mean1 <- mean(group1_data, na.rm = TRUE)
+  sd1 <- sd(group1_data, na.rm = TRUE)
+  mean2 <- mean(group2_data, na.rm = TRUE)
+  sd2 <- sd(group2_data, na.rm = TRUE)
+  
+  median1 <- median(group1_data, na.rm = TRUE)
+  iqr1 <- IQR(group1_data, na.rm = TRUE)
+  median2 <- median(group2_data, na.rm = TRUE)
+  iqr2 <- IQR(group2_data, na.rm = TRUE)
+  
+  # Paired t-test
+  t_test_result <- t.test(group1_data, group2_data, paired = TRUE, na.rm = TRUE)
+  
+  # Cohen's d for paired samples
+  cohens_d <- cohens_d(group1_data, group2_data, paired = TRUE)
+  
+  # Paired Wilcoxon signed-rank test
+  wilcox_test_result <- wilcox.test(group1_data, group2_data, paired = TRUE, exact = FALSE, na.rm = TRUE)
+  
+  # Print results
+  cat("\nPaired Comparison of", group1, "vs", group2, "for", score_name, "\n")
+  cat("Group 1 (", group1, "): Mean =", round(mean1, 3), ", SD =", round(sd1, 3), 
+      ", Median =", round(median1, 3), ", IQR =", round(iqr1, 3), "\n")
+  cat("Group 2 (", group2, "): Mean =", round(mean2, 3), ", SD =", round(sd2, 3), 
+      ", Median =", round(median2, 3), ", IQR =", round(iqr2, 3), "\n")
+  
+  cat("Paired t-test: t(", round(t_test_result$parameter, 2), ") =", round(t_test_result$statistic, 3), 
+      ", p =", round(t_test_result$p.value, 4), "\n")
+  cat("Cohen's d (paired) =", round(cohens_d$Cohens_d, 3), "\n")
+  
+  cat("Wilcoxon signed-rank test: V =", round(wilcox_test_result$statistic, 3), 
+      ", p =", round(wilcox_test_result$p.value, 4), "\n")
+}
+
+
+# Compare fit scores
+compare_groups(rmsea_df, "edd1", "eRDoC1", "RMSEA")
+compare_groups(cfi_df, "edd1", "eRDoC1", "CFI")
+compare_groups(tli_df, "edd1", "eRDoC1", "TLI")
+compare_groups(aic_df, "edd1", "eRDoC1", "AIC")
+```
+
+####
+# Result 1b: Save specific factors in ddfactors_subs1 and rdocfactors_subs1 for community detection (in matlab)
+```{r}
+process_factors <- function(results_list, factor_type, extract) {
+  transposed_matrices <- list()
+  max_cols <- 0
+  
+  for (i in seq_along(results_list)) {
+    factor_matrix <- results_list[[i]][[factor_type]][[extract]]
+    if (!is.null(factor_matrix) && !any(is.na(factor_matrix)) && nrow(factor_matrix) > 0) {
+      colnames(factor_matrix) <- paste0(colnames(factor_matrix), "_", i)
+      transposed_matrix <- t(factor_matrix)
+      max_cols <- max(max_cols, ncol(transposed_matrix))
+      transposed_matrices[[length(transposed_matrices) + 1]] <- transposed_matrix
+    }
+  }
+  
+  # Pad matrices to match the max column size
+  transposed_matrices <- lapply(transposed_matrices, function(mat) {
+    if (ncol(mat) < max_cols) cbind(mat, matrix(NA, nrow = nrow(mat), ncol = max_cols - ncol(mat))) else mat
+  })
+  
+  # Combine matrices row-wise and remove fully NA rows
+  result <- do.call(rbind, transposed_matrices)
+  result[rowSums(is.na(result)) != ncol(result), ]
+}
+
+# Process both lists
+ddfactors_all <- process_factors(results_list, "edd.fit.output1", "fscores")
+rdocfactors_all <- process_factors(results_list, "erdoc.fit.output1", "fscores")
+ddfactors_subs1 <- process_factors(results_list1, "edd.fit.output1", "fscores")
+rdocfactors_subs1 <- process_factors(results_list1, "erdoc.fit.output1", "fscores")
+ddfactors_subs2 <- process_factors(results_list2, "edd.fit.output1", "fscores")
+rdocfactors_subs2 <- process_factors(results_list2, "erdoc.fit.output1", "fscores")
+
+# Create ddfactors_all_nog (no general factors)
+rows_to_remove <- grepl("^g", rownames(ddfactors_all))
+ddfactors_all_nog <- ddfactors_all[!rows_to_remove, ]
+ddfactors_all_nog_df <- as.data.frame(ddfactors_all_nog)
+
+# Create ddfactors_subs1_nog (no general factors)
+rows_to_remove <- grepl("^g", rownames(ddfactors_subs1))
+ddfactors_subs1_nog <- ddfactors_subs1[!rows_to_remove, ]
+ddfactors_subs1_nog_df <- as.data.frame(ddfactors_subs1_nog)
+
+# Create ddfactors_subs2_nog (no general factors)
+rows_to_remove2 <- grepl("^g", rownames(ddfactors_subs2))
+ddfactors_subs2_nog <- ddfactors_subs2[!rows_to_remove2, ]
+ddfactors_subs2_nog_df <- as.data.frame(ddfactors_subs2_nog)
+
+# Save rdocfactors_all, ddfactors_all_nog_df, ddfactors_subs1_nog_df, ddfactors_subs2_nog_df
+```
+
+####
+# Result 1c: Run a pca to condense all specific factors into 3-7 components (ddpca)
+```{r}
+library(caret)
+target_spfactors = ddfactors_subs1_nog #Swap this out for ddfactors_subs2_nog for cohort 2
+lin_combos <- findLinearCombos(target_spfactors) 
+ddfactors_clean <- target_spfactors[, -lin_combos$remove]
+
+ddpca <- principal(ddfactors_clean, nfactors = 5, rotate = "varimax") #Set this to desired number of components
+print(ddpca)
+ddcomponent_fscores <- ddpca$scores
+ddpcaloadings <- ddpca$loadings
+heatmap.2(data.matrix(ddpcaloadings), dendrogram = c("none"), Rowv = NA, Colv = NA, trace="none",col = colorRampPalette(c("white", "red"))(100))
+
+# Create full loadings matrix (with zeros for removed variables)
+full_loadings <- matrix(0, nrow = ncol(target_spfactors), ncol = ncol(ddpcaloadings))
+kept_indices <- setdiff(seq_len(ncol(target_spfactors)), lin_combos$remove)
+full_loadings[kept_indices, ] <- as.matrix(ddpcaloadings)
+
+ddpcaloadings_df <- as.data.frame(full_loadings)
+colnames(ddpcaloadings_df) <- colnames(ddpcaloadings)
+rownames(ddpcaloadings_df) <- colnames(target_spfactors)
+ddpcaloadings_df_shine <- ddpcaloadings_df[cifti2shineorder, ]
+# Save ddpcaloadings_df and ddpcaloadings_df_shine for shine cifti and shine regular order respectively
+
+ddcomponent_fscores_df <- as.data.frame(ddcomponent_fscores)
+ddcomponent_fscores_df_shine <- ddcomponent_fscores_df[cifti2shineorder, ]
+# Save ddcomponent_fscores_df and ddcomponent_fscores_df_shine for shine cifti and shine regular order respectively
+```
+
+####
+#Result 2: General factor across individuals
+```{r}
+target_list <- results_list1 #Specify results_list for all 962 subjects, results_list1 for cohort 1, or results_list2 for cohort 2
+
+gscores_list <- list()
+# Loop through each subject in the results list
+for (i in seq_along(target_list)) {
+  # Check if the fscores element exists and has the correct dimensions
+  if (!is.null(target_list[[i]]$edd.fit.output1$fscores) &&
+      is.matrix(target_list[[i]]$edd.fit.output1$fscores) &&
+      "g" %in% colnames(target_list[[i]]$edd.fit.output1$fscores)) {
+    
+    # Extract the fscores from column g for the current subject
+    fscores_g <- target_list[[i]]$edd.fit.output1$fscores[, "g"]
+    
+    # Check if the extracted column contains no NA values
+    if (!any(is.na(fscores_g))) {
+      # Add the fscores to the list
+      gscores_list[[i]] <- fscores_g
+    }
+  }
+}
+
+# Filter out any NULL entries in the list
+gscores_list <- gscores_list[!sapply(gscores_list, is.null)]
+
+# Combine the list into a matrix
+gscores_matrix <- do.call(cbind, gscores_list)
+
+# Rename the columns to g_n where n is the subject index
+colnames(gscores_matrix) <- paste0("g_", which(!sapply(target_list, function(x) is.null(x$edd.fit.output1$fscores) ||
+                                                                   !is.matrix(x$edd.fit.output1$fscores) ||
+                                                                   !("g" %in% colnames(x$edd.fit.output1$fscores)) ||
+                                                                   any(is.na(x$edd.fit.output1$fscores[, "g"])))))
+
+g_avg <- rowMeans(gscores_matrix, na.rm = TRUE)
+g_avg_df <- data.frame(Row = 1:length(g_avg), Average_g = g_avg)
+g_avg_df_shine <- g_avg_df[cifti2shineorder, ]
+
+#  Save g_avg_df for general factor in shine's cifti order, save g_avg_df_shine for shine's regular order
+```
+
+####
+# Result 5: Find which map loads most highly on each factor for each subject, saved in highestmap4factor_df and highestmap4factor_df_nog
+```{r}
+# Initialize an empty list to store the column indices with the highest absolute values
+highest_abs_indices <- list()
+
+# Loop through the list to extract subject matrices, transpose them, and find the column with the highest absolute value
+for (i in seq(1, length(results_list2))) {
+  # Extract the factor loading matrix
+  loadings_matrix <- results_list2[[i]]$edd.fit.output1$loadings
+  
+  # Check if loadings_matrix is valid and does not contain any NA values
+  if (!is.null(loadings_matrix) && !any(is.na(loadings_matrix)) && nrow(loadings_matrix) > 0) {
+    # Transpose the matrix
+    transposed_matrix <- t(loadings_matrix)
+    
+    # Find the column index with the highest absolute value for each row in the transposed matrix
+    max_abs_indices <- apply(transposed_matrix, 1, function(row) which.max(abs(row)))
+    
+    # Name the indices with the factor names appended with the subject index
+    factor_names <- paste0(names(max_abs_indices), "_", i)
+    
+    # Store the indices in the list with factor names as row names
+    highest_abs_indices[[length(highest_abs_indices) + 1]] <- data.frame(max_abs_column = max_abs_indices, row.names = factor_names, stringsAsFactors = FALSE)
+  }
+}
+
+# Combine the data frames into a single data frame, and remove the rows that start with "g" (general factor), 
+highest_abs_indices_df <- do.call(rbind, highest_abs_indices)
+rows_to_remove <- grepl("^g", rownames(highest_abs_indices_df))
+highestMforF_df_nog <- highest_abs_indices_df[!rows_to_remove, , drop = FALSE]
+
+# Save highestMforF_df_nog
+```

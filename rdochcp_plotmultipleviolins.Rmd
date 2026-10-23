@@ -1,0 +1,162 @@
+---
+title: "rdochcp plotting for Fig. 1 and Supp. Fig. 1"
+author: "Shaun Quah"
+date: "2025-04-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)      # for violin and box plots
+library(dplyr)        # for data manipulation (e.g., bind_rows)
+library(tibble)       # to create tibbles in plot_and_save()
+library(stats)        # for t.test()
+
+# Specify root directory
+root <- ""
+
+# Specify path to output of factor analysis
+fa_output_dir  <- ""    # directory with the factor analysis output for validation models using variable N components
+
+# Load required files
+cohort1_ids <- read.csv(file.path(root, "rdoc-hcp sherlock data", "cohort one.csv"))$Subject |> as.character()
+cohort2_ids <- read.csv(file.path(root, "rdoc-hcp sherlock data", "cohort two.csv"))$Subject |> as.character()
+
+output_dir <- file.path(root, "outputs")
+```
+
+# Load data
+```{r}
+# Specify outputs of validation models
+component_dirs <- list(
+  `3` = "output_pca3", #output_pca3_sub2 etc for cohort 2
+  `4` = "output_pca4",
+  `5` = "output_pca5",
+  `6` = "output_pca6",
+  `7` = "output_pca7"
+) 
+
+# Load results per component
+load_results <- function(component) {
+  dir <- file.path(fa_output_dir, component_dirs[[as.character(component)]])
+  files <- list.files(dir, pattern = "\\.rds$", full.names = TRUE)
+  results <- lapply(files, readRDS)
+  subjects <- gsub("(.*)_FAoutput\\.rds", "\\1", basename(files))
+  list(
+    all = results,
+    sub1 = results[subjects %in% cohort1_ids],
+    sub2 = results[subjects %in% cohort2_ids]
+  )
+}
+
+results_all <- lapply(names(component_dirs), function(comp) load_results(as.integer(comp)))
+names(results_all) <- paste0("comp", names(component_dirs))
+```
+
+# Figure 1 and Supplementary figure 1: Function to plot Cohort 1 vs 2 violin plots (side-by-side)
+```{r}
+# Function to extract and consolidate a specific fit measure from all subjects for a given model
+extract_fit_measure <- function(results_list, model_name, measure_name) {
+  # Initialize a vector to store the fit measures for all subjects
+  fit_measures <- numeric(length(results_list))
+  
+  # Loop through the results list
+  for (i in seq_along(results_list)) {
+    # Try to extract the fit measure for the current subject
+    # Dynamically access the correct model's output and then the specific fit measure using [[ for both levels
+    fit_measure <- tryCatch({
+      results_list[[i]][[model_name]]$fit.measures[[measure_name]]
+    }, error = function(e) {
+      NA  # In case of any error, assign NA
+    })
+    
+    # Store the fit measure in the vector
+    fit_measures[i] <- fit_measure
+  }
+  
+  # Return the consolidated fit measures
+  return(fit_measures)
+}
+
+# Extract measures for BOTH cohorts into one tidy frame
+extract_both_cohorts <- function(results_all, field_name, measure_name, include_vrdoc = TRUE) {
+  build_for <- function(subkey, cohort_label) {
+    ml <- lapply(results_all, function(r) extract_fit_measure(r[[subkey]], field_name, measure_name))
+    names(ml) <- paste0(substr(names(results_all), 5, 5), " Components")  # "3 Components", ...
+    if (include_vrdoc && "comp6" %in% names(results_all)) {
+      vr <- extract_fit_measure(results_all$comp6[[subkey]], "erdoc.fit.output1", measure_name)
+      ml[["vRDoC"]] <- vr
+    }
+    bind_rows(lapply(names(ml), function(nm) tibble(Cohort = cohort_label, Model = nm, Value = ml[[nm]])))
+  }
+
+  df <- bind_rows(
+    build_for("sub1", "Cohort 1"),
+    build_for("sub2", "Cohort 2")
+  ) |>
+    dplyr::filter(!is.na(Value)) |>
+    dplyr::mutate(
+      Model = factor(Model, levels = c("3 Components","4 Components","5 Components","6 Components","7 Components","vRDoC")),
+      Cohort = factor(Cohort, levels = c("Cohort 1","Cohort 2"))
+    )
+  df
+}
+
+# Plot helper (facets by Cohort; reverses y for "lower is better")
+plot_by_cohort <- function(df, title, ylab) {
+  p <- ggplot(df, aes(x = Model, y = Value, fill = Model)) +
+    geom_violin(trim = FALSE, na.rm = TRUE) +
+    geom_boxplot(width = 0.1, fill = "white", outlier.shape = 21, outlier.size = 1.2, na.rm = TRUE) +
+    facet_wrap(~ Cohort, nrow = 1) +
+    labs(title = title, x = "Model", y = ylab) +
+    scale_fill_manual(values = c(
+      "3 Components" = hcl(240, 80, 40),
+      "4 Components" = hcl(240, 80, 40),
+      "5 Components" = hcl(240, 80, 40),
+      "6 Components" = hcl(240, 80, 40),
+      "7 Components" = hcl(240, 80, 40),
+      "vRDoC"        = hcl( 10, 80, 40)
+    )) +
+    theme_minimal() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line = element_line(colour = "black"),
+          legend.position = "none")
+  if (tolower(ylab) %in% c("rmsea","aic")) p <- p + scale_y_reverse()
+  p
+}
+```
+
+# Plot and save Cohort 1 vs 2 violin plots
+```{r}
+# RMSEA
+rmsea_both <- extract_both_cohorts(results_all, field_name = "dd.fit.output3", measure_name = "rmsea.robust", include_vrdoc = TRUE)
+p_rmsea <- plot_by_cohort(rmsea_both, title = "RMSEA (robust) by Cohort", ylab = "RMSEA")
+print(p_rmsea)
+ggplot2::ggsave(file.path(output_dir, "Violin_fig1_rmsea_validation.png"),
+                plot = p_rmsea, width = 14, height = 6, units = "in",
+                dpi = 300, bg = "white")
+
+# CFI
+cfi_both <- extract_both_cohorts(results_all, field_name = "dd.fit.output3", measure_name = "cfi.robust", include_vrdoc = TRUE)
+p_cfi <- plot_by_cohort(cfi_both, title = "cfi (robust) by Cohort", ylab = "cfi")
+print(p_cfi)
+ggplot2::ggsave(file.path(output_dir, "Violin_fig1_cfi_validation.png"),
+                plot = p_cfi, width = 14, height = 6, units = "in",
+                dpi = 300, bg = "white")
+
+# TLI
+tli_both <- extract_both_cohorts(results_all, field_name = "dd.fit.output3", measure_name = "tli.robust", include_vrdoc = TRUE)
+p_tli <- plot_by_cohort(tli_both, title = "tli (robust) by Cohort", ylab = "tli")
+print(p_tli)
+ggplot2::ggsave(file.path(output_dir, "Violin_fig1_tli_validation.png"),
+                plot = p_tli, width = 14, height = 6, units = "in",
+                dpi = 300, bg = "white")
+
+# AIC
+aic_both <- extract_both_cohorts(results_all, field_name = "dd.fit.output3", measure_name = "aic", include_vrdoc = TRUE)
+p_aic <- plot_by_cohort(aic_both, title = "AIC by Cohort", ylab = "AIC")
+print(p_aic)
+ggplot2::ggsave(file.path(output_dir, "Violin_fig1_aic_validation.png"),
+                plot = p_aic, width = 14, height = 6, units = "in",
+                dpi = 300, bg = "white")
+```
