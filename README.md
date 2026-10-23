@@ -30,7 +30,13 @@ maps, behavioral data) at local paths that you will need to set at the top of ea
 Human Connectome Project data, including restricted behavioral variables, can be obtained from the
 [HCP](https://www.humanconnectome.org/) subject to its data use terms.
 
-The Mapper analyses use the [bdl-mapper](https://github.com/braindynamicslab) toolbox, which is not bundled here.
+## Mapper functions
+
+The MATLAB scripts depend on Mapper and plotting functions that are not included in this repository
+(e.g. `runBDLMapper`, `calMod`, `drawd3graph`, `computeProportionCategorical`, `computeHubness`,
+`testModularitySignificance`). `rdochcp_mapper_modularity.mlx` loads precomputed Mapper outputs
+(`rdochcp_contrastmapper_subs1.mat` / `subs2.mat`) rather than running Mapper itself. These functions will be
+released together with the associated Mapper methods paper.
 
 ## Citation
 
