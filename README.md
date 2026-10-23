@@ -35,8 +35,12 @@ Human Connectome Project data, including restricted behavioral variables, can be
 The MATLAB scripts depend on Mapper and plotting functions that are not included in this repository
 (e.g. `runBDLMapper`, `calMod`, `drawd3graph`, `computeProportionCategorical`, `computeHubness`,
 `testModularitySignificance`). `rdochcp_mapper_modularity.mlx` loads precomputed Mapper outputs
-(`rdochcp_contrastmapper_subs1.mat` / `subs2.mat`) rather than running Mapper itself. These functions will be
-released together with the associated Mapper methods paper.
+(`rdochcp_contrastmapper_subs1.mat` / `subs2.mat`) rather than running Mapper itself.
+
+For Mapper implementations from our lab, see:
+
+- [neuMapper](https://github.com/braindynamicslab/neumapper): a scalable Mapper algorithm for neuroimaging data analysis
+- [deMapper](https://github.com/braindynamicslab/demapper): the deconstructed Mapper toolbox for MATLAB
 
 ## Citation
 
